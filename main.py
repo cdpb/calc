@@ -40,12 +40,16 @@ def calcdistance(dfrom, dto):
     directions_result = gmaps.directions(dfrom, dto, mode="driving")
     try:
         calcdistance = directions_result[0]["legs"][0]["distance"]["value"]
+        # skip if over 1000km
+        if calcdistance > 1000000:
+            raise IndexError
         method = "googlemaps-drive"
     except IndexError:
-        if not dfrom[0:2].isdigit():
-            dfrom = gmaps.geocode(dfrom)
-        if not dto[0:2].isdigit():
-            dto = gmaps.geocode(dto)
+        #if not dfrom[0:2].isdigit():
+        #    dfrom = gmaps.geocode(dfrom)
+        #if not dto[0:2].isdigit():
+        #    dto = gmaps.geocode(dto)
+
         a = geopy.distance.vincenty(dfrom, dto).km
         if a:
             method = "beeline"
