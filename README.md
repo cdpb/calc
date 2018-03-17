@@ -11,6 +11,7 @@ CREATE TABLE wordpress.wp_cdpb_calc (
   skipcalculate varchar(20) DEFAULT NULL,
   PRIMARY KEY (id)
 );
+```
 
 #### Environment
 - GOOGLE_APIKEY
