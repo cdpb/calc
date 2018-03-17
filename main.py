@@ -3,14 +3,39 @@
 import googlemaps
 import pymysql
 import geopy.distance
-from os import environ
+import logging
+from os import getenv
 
-db = pymysql.connect(
-    host=environ.get('MYSQL_HOST'),
-    user=environ.get('MYSQL_USER'),
-    passwd=environ.get('MYSQL_PASSWORD'),
-    db=environ.get('MYSQL_DATABASE')
-)
+dbhost = getenv('MYSQL_HOST')
+dbuser = getenv('MYSQL_USER')
+dbpasswd = getenv('MYSQL_PASSWORD')
+dbname = getenv('MYSQL_DATABASE')
+maxmeter = 1000000
+wpmapid = 1
+
+logger = logging.getLogger('calc')
+logger.setLevel(logging.INFO)
+fh = logging.FileHandler('/tmp/calc.log')
+fh.setLevel(logging.INFO)
+ch = logging.StreamHandler()
+ch.setLevel(logging.INFO)
+formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+fh.setFormatter(formatter)
+ch.setFormatter(formatter)
+logger.addHandler(fh)
+logger.addHandler(ch)
+
+try:
+    db = pymysql.connect(
+        host=dbhost,
+        user=dbuser,
+        passwd=dbpasswd,
+        db=dbname
+    )
+except:
+    logger.error("could not connect to %s@%s on %s" % (dbuser, dbhost, dbname))
+    exit(98)
+
 cursor = db.cursor()
 
 # default is to fetch all from sql
@@ -22,6 +47,9 @@ def sql(query, type="all"):
         data = cursor.fetchone()
     else:
         exit(99)
+
+    logger.debug("SQL %s - query: %s" % (type, query))
+    logger.debug("SQL %s - data: %s" % (type, data))
     return data
 
 # generate list of data pair
@@ -36,19 +64,22 @@ def shift(data):
             finaldata.append([item, data[index+1]])
 
 # calculate distance, try google driving first, if it failes try beeline, otherwise error with distance 0
-def calcdistance(dfrom, dto):
+def calcdistance(dfrom, dto, index):
     directions_result = gmaps.directions(dfrom, dto, mode="driving")
     try:
-        calcdistance = directions_result[0]["legs"][0]["distance"]["value"]
-        # skip if over 1000km
-        if calcdistance > 1000000:
-            raise IndexError
         method = "googlemaps-drive"
+        calcdistance = directions_result[0]["legs"][0]["distance"]["value"]
+        # skip if over maxmeter
+        if calcdistance > maxmeter:
+            logger.error("distance from %s to %s over %i, try beeline" % (dfrom, dto, maxmeter))
+            raise IndexError
     except IndexError:
-        #if not dfrom[0:2].isdigit():
-        #    dfrom = gmaps.geocode(dfrom)
-        #if not dto[0:2].isdigit():
-        #    dto = gmaps.geocode(dto)
+        if not dfrom[0:2].isdigit():
+            dfrom = gmaps.geocode(dfrom)
+            logger.info("convert %s to geocode - %s" % ("dfrom", dfrom))
+        if not dto[0:2].isdigit():
+            dto = gmaps.geocode(dto)
+            logger.info("convert %s to geocode - %s" % ("dto", dto))
 
         a = geopy.distance.vincenty(dfrom, dto).km
         if a:
@@ -58,13 +89,14 @@ def calcdistance(dfrom, dto):
             method = "error"
             calcdistance = 0
     finally:
+        logger.info("%s - index: %i calculate distance from %s to %s - output %i" % (method, index, dfrom, dto, calcdistance))
         return [calcdistance, method]
 
-directions_sql = sql("select address,lat,lng from wordpress.wp_wpgmza where map_id = 1")
+directions_sql = sql("select address,lat,lng from wordpress.wp_wpgmza where map_id = %i" % (wpmapid))
 directions_sorted = shift(directions_sql)
 
 if directions_sorted:
-    gmaps = googlemaps.Client(environ.get('GOOGLE_APIKEY'))
+    gmaps = googlemaps.Client(getenv('GOOGLE_APIKEY'))
     skipping = 0
     calculating = 0
     index_except = 0
@@ -83,13 +115,13 @@ if directions_sorted:
 
                 if desc_existing == desc_calc and method_existing != "test":
                     skipping += 1
+                    logger.debug("skip - %s == %s with method %s" % ( desc_existing, desc_calc, method_existing))
                     continue
             calculating += 1
         except IndexError:
             continue
 
-        #data = [11, "test"]
-        data = calcdistance(dfrom, dto)
+        data = calcdistance(dfrom, dto, index)
         distance = data[0]
         method = data[1]
         sql("""INSERT INTO wordpress.wp_cdpb_calc(id, description, distance, method) VALUES (%(index)i, "%(desc)s", %(distance)i, "%(method)s") ON DUPLICATE KEY UPDATE id=%(index)i, description="%(desc)s", distance=%(distance)i, method="%(method)s";"""
