@@ -46,10 +46,8 @@ Example use in functions.php
 // summary of distance from maps plugin
 function get_cdpb_calc() {
         global $wpdb;
-        $a = $wpdb->get_results("SELECT SUM(distance) as count FROM wp_cdpb_calc where skipcalculate is not true");
+        $a = $wpdb->get_results("SELECT ROUND(SUM(distance)/1000) as count FROM wp_cdpb_calc where skipcalculate is not true");
         $b = $a[0]->count;
-        $b = $b / 1000;
-        $b = ceil($b);
         return $b;
 }
 add_shortcode( 'wp-cdpb-calc', 'get_cdpb_calc' );
