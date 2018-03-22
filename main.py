@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 
-import googlemaps
-import pymysql
 import geopy.distance
+import googlemaps
 import logging
 from os import getenv
+import pymysql
 
 dbhost = getenv('MYSQL_HOST')
 dbuser = getenv('MYSQL_USER')
@@ -32,7 +32,7 @@ try:
         passwd=dbpasswd,
         db=dbname
     )
-except:
+except Exception:
     logger.error("could not connect to %s@%s on %s" % (dbuser, dbhost, dbname))
     exit(98)
 
@@ -63,7 +63,8 @@ def shift(data):
         else:
             finaldata.append([item, data[index+1]])
 
-# calculate distance, try google driving first, if it failes try beeline, otherwise error with distance 0
+# calculate distance, try google driving first
+# if it failes try beeline, otherwise error with distance 0
 def calcdistance(dfrom, dto, index):
     directions_result = gmaps.directions(dfrom, dto, mode="driving")
     try:
@@ -71,7 +72,8 @@ def calcdistance(dfrom, dto, index):
         calcdistance = directions_result[0]["legs"][0]["distance"]["value"]
         # skip if over maxmeter
         if calcdistance > maxmeter:
-            logger.error("distance from %s to %s over %i, try beeline" % (dfrom, dto, maxmeter))
+            logger.error("distance from %s to %s over %i, try beeline"
+                         % (dfrom, dto, maxmeter))
             raise IndexError
     except IndexError:
         if not dfrom[0:2].isdigit():
@@ -89,10 +91,13 @@ def calcdistance(dfrom, dto, index):
             method = "error"
             calcdistance = 0
     finally:
-        logger.info("%s - index: %i calculate distance from %s to %s - output %i" % (method, index, dfrom, dto, calcdistance))
+        logger.info("%s - index: %i calculate distance from %s to %s - output %i"
+                    % (method, index, dfrom, dto, calcdistance))
         return [calcdistance, method]
 
-directions_sql = sql("select address,lat,lng from wordpress.wp_wpgmza where map_id = %i" % (wpmapid))
+
+directions_sql = sql("select address,lat,lng from wordpress.wp_wpgmza where map_id = %i"
+                     % (wpmapid))
 directions_sorted = shift(directions_sql)
 
 if directions_sorted:
@@ -106,7 +111,8 @@ if directions_sorted:
         dto = d[1][1] + ", " + d[1][2]
 
         # check if existing calculaten was made and skip
-        data_existing = sql("""SELECT description,method FROM wordpress.wp_cdpb_calc WHERE id = %i""" % index_except)
+        data_existing = sql("""SELECT description,method FROM wordpress.wp_cdpb_calc WHERE id = %i"""
+                            % index_except)
         try:
             index_except += 1
             if not len(data_existing) == 0:
@@ -115,7 +121,7 @@ if directions_sorted:
 
                 if desc_existing == desc_calc and method_existing != "test":
                     skipping += 1
-                    logger.debug("skip - %s == %s with method %s" % ( desc_existing, desc_calc, method_existing))
+                    logger.debug("skip - %s == %s with method %s" % (desc_existing, desc_calc, method_existing))
                     continue
             calculating += 1
         except IndexError:
@@ -124,7 +130,10 @@ if directions_sorted:
         data = calcdistance(dfrom, dto, index)
         distance = data[0]
         method = data[1]
-        sql("""INSERT INTO wordpress.wp_cdpb_calc(id, description, distance, method) VALUES (%(index)i, "%(desc)s", %(distance)i, "%(method)s") ON DUPLICATE KEY UPDATE id=%(index)i, description="%(desc)s", distance=%(distance)i, method="%(method)s";"""
+        sql("""INSERT INTO wordpress.wp_cdpb_calc(id, description, distance, method)
+            VALUES (%(index)i, "%(desc)s", %(distance)i, "%(method)s")
+            ON DUPLICATE KEY
+            UPDATE id=%(index)i, description="%(desc)s", distance=%(distance)i, method="%(method)s";"""
             % {"index": index, "desc": desc_calc, "distance": distance, "method": method})
         db.commit()
     distance_total = sql("""SELECT sum(distance) as sum FROM wordpress.wp_cdpb_calc""")
