@@ -126,8 +126,8 @@ if data_wpmaps and data_wpcalc:
 
         if ident_wpcalc == ident_wpmaps:
             skipped += 1
-            logger.debug("skip - pair: %i - %s "
-                         % (ident_wpcalc, description_wpcalc))
+            logger.debug("skip - pair: %s - %s "
+                         % (pairindex, description_wpcalc))
         else:
             dfrom = data[2]
             dto = data[3]
@@ -160,6 +160,6 @@ if data_wpmaps and data_wpcalc:
 
     distance_total = sql("""SELECT ROUND(SUM(distance)/1000) as count
                          FROM wp_cdpb_calc where skipcalculate is not true""")
-    logger.info("%i m - skipped: %i - calculated: %i "
+    logger.info("total %i km - skipped: %i - calculated: %i "
                 % (distance_total[0][0], skipped, calculated))
 db.close()
