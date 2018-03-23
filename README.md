@@ -7,6 +7,7 @@ CREATE TABLE wordpress.wp_cdpb_calc (
   id INT(6) PRIMARY KEY,
   description VARCHAR(1000) NOT NULL,
   distance INT(30) NOT NULL,
+  ident varchar(6) DEFAULT NOT NULL,
   method VARCHAR(20) NOT NULL,
   skipcalculate varchar(20) DEFAULT NULL,
   PRIMARY KEY (id)

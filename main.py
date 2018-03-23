@@ -5,24 +5,23 @@ import googlemaps
 import logging
 from os import getenv
 import pymysql
+import random
+import string
 
 dbhost = getenv('MYSQL_HOST')
 dbuser = getenv('MYSQL_USER')
 dbpasswd = getenv('MYSQL_PASSWORD')
 dbname = getenv('MYSQL_DATABASE')
+dbport = getenv('MYSQL_PORT')
 maxmeter = 1000000
 wpmapid = 1
 
 logger = logging.getLogger('calc')
 logger.setLevel(logging.INFO)
-fh = logging.FileHandler('/tmp/calc.log')
-fh.setLevel(logging.INFO)
 ch = logging.StreamHandler()
 ch.setLevel(logging.INFO)
 formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-fh.setFormatter(formatter)
 ch.setFormatter(formatter)
-logger.addHandler(fh)
 logger.addHandler(ch)
 
 try:
@@ -30,6 +29,7 @@ try:
         host=dbhost,
         user=dbuser,
         passwd=dbpasswd,
+        port=dbport,
         db=dbname
     )
 except Exception:
@@ -47,95 +47,119 @@ def sql(query, type="all"):
         data = cursor.fetchone()
     else:
         exit(99)
-
-    logger.debug("SQL %s - query: %s" % (type, query))
-    logger.debug("SQL %s - data: %s" % (type, data))
     return data
 
+def generate_description(a, b, delim="to"):
+    combine = "%s %s %s" % (a, delim, b)
+    return combine
+
+def generate_uniq_ident(data, chars=string.ascii_uppercase + string.digits):
+    random.seed(data)
+    return ''.join(random.choice(chars) for _ in range(6))
+
 # generate list of data pair
-def shift(data):
+# output data(description, ident, dfrom, dto)
+def generate_data_pair(data):
     finaldata = []
-    for index, item in enumerate(data):
+    pairone = None
+    pairtwo = None
+
+    for index, item in enumerate(data, start=0):
         try:
-            data[index+1]
+            nextitem = data[index+1]
         except IndexError:
             return finaldata
         else:
-            finaldata.append([item, data[index+1]])
+            dfrom_description = item[0]
+            dfrom = item[1] + ", " + item[2]
+            dto_description = nextitem[0]
+            dto = nextitem[1] + ", " + nextitem[2]
+            description = generate_description(dfrom_description,
+                                               dto_description)
+            ident = generate_uniq_ident(description)
+            finaldata.append([description, ident, dfrom, dto])
 
-# calculate distance, try google driving first
-# if it failes try beeline, otherwise error with distance 0
-def calcdistance(dfrom, dto, index):
-    directions_result = gmaps.directions(dfrom, dto, mode="driving")
-    try:
-        method = "googlemaps-drive"
-        calcdistance = directions_result[0]["legs"][0]["distance"]["value"]
-        # skip if over maxmeter
-        if calcdistance > maxmeter:
-            logger.error("distance from %s to %s over %i, try beeline"
-                         % (dfrom, dto, maxmeter))
-            raise IndexError
-    except IndexError:
-        if not dfrom[0:2].isdigit():
-            dfrom = gmaps.geocode(dfrom)
-            logger.info("convert %s to geocode - %s" % ("dfrom", dfrom))
-        if not dto[0:2].isdigit():
-            dto = gmaps.geocode(dto)
-            logger.info("convert %s to geocode - %s" % ("dto", dto))
-
-        a = geopy.distance.vincenty(dfrom, dto).km
-        if a:
-            method = "beeline"
-            calcdistance = round(a * 1000)
-        else:
-            method = "error"
-            calcdistance = 0
-    finally:
-        logger.info("%s - index: %i calculate distance from %s to %s - output %i"
-                    % (method, index, dfrom, dto, calcdistance))
-        return [calcdistance, method]
-
-
-directions_sql = sql("select address,lat,lng from wordpress.wp_wpgmza where map_id = %i"
-                     % (wpmapid))
-directions_sorted = shift(directions_sql)
-
-if directions_sorted:
+# try call google maps api
+def try_calculate_gmaps(dfrom, dto, mode="driving"):
     gmaps = googlemaps.Client(getenv('GOOGLE_APIKEY'))
-    skipping = 0
-    calculating = 0
-    index_except = 0
-    for index, d in enumerate(directions_sorted):
-        desc_calc = d[0][0] + " to " + d[1][0]
-        dfrom = d[0][1] + ", " + d[0][2]
-        dto = d[1][1] + ", " + d[1][2]
+    rawdata = gmaps.directions(dfrom, dto, mode=mode)
+    distance = rawdata[0]["legs"][0]["distance"]["value"]
 
-        # check if existing calculaten was made and skip
-        data_existing = sql("""SELECT description,method FROM wordpress.wp_cdpb_calc WHERE id = %i"""
-                            % index_except)
-        try:
-            index_except += 1
-            if not len(data_existing) == 0:
-                desc_existing = data_existing[0][0]
-                method_existing = data_existing[0][1]
+    if distance > maxmeter:
+        logger.error("distance from %s to %s over %i, try something else"
+                     % (dfrom, dto, maxmeter))
+        method = None
 
-                if desc_existing == desc_calc and method_existing != "test":
-                    skipping += 1
-                    logger.debug("skip - %s == %s with method %s" % (desc_existing, desc_calc, method_existing))
+    if isinstance(distance, int):
+        method = "gmaps-%s" % (mode)
+    else:
+        method = None
+    data = (distance, method)
+    return data
+
+# try direct way
+def try_calculate_beeline(dfrom, dto):
+    distance_raw = geopy.distance.vincenty(dfrom, dto).m
+    distance = round(distance_raw)
+    if isinstance(distance, int):
+        method = "beeline"
+    else:
+        method = None
+    data = (distance, method)
+    return data
+
+
+data_wpmaps_raw = sql("SELECT address,lat,lng FROM wordpress.wp_wpgmza WHERE map_id = %i"
+                      % (wpmapid))
+
+data_wpcalc = sql("SELECT description,ident,method FROM wordpress.wp_cdpb_calc")
+data_wpmaps = generate_data_pair(data_wpmaps_raw)
+
+if data_wpmaps and data_wpcalc:
+    skipped = 0
+    calculated = 0
+    for pairindex, data in enumerate(data_wpmaps):
+        description_wpmaps = data[0]
+        ident_wpmaps = data[1]
+        description_wpcalc = data_wpcalc[pairindex][0]
+        ident_wpcalc = data_wpcalc[pairindex][0]
+
+        if ident_wpcalc == ident_wpmaps:
+            skipped += 1
+            logger.debug("skip - pair: %i - %s "
+                         % (ident_wpcalc, description_wpcalc))
+        else:
+            dfrom = data[2]
+            dto = data[3]
+            for method in (try_calculate_beeline, try_calculate_gmaps):
+                calculate_method_result = method(dfrom, dto)
+                distance = calculate_method_result[0]
+                method = calculate_method_result[1]
+                if method is None:
+                    print(calculate_method_result)
+                    logger.info("method %s failed, pair: %s - %s"
+                                % (method, pairindex, description_wpmaps))
                     continue
-            calculating += 1
-        except IndexError:
-            continue
+                else:
+                    logger.info("method %s calculated %i, pair: %s - %s"
+                                % (method, distance, pairindex, description_wpmaps))
 
-        data = calcdistance(dfrom, dto, index)
-        distance = data[0]
-        method = data[1]
-        sql("""INSERT INTO wordpress.wp_cdpb_calc(id, description, distance, method)
-            VALUES (%(index)i, "%(desc)s", %(distance)i, "%(method)s")
-            ON DUPLICATE KEY
-            UPDATE id=%(index)i, description="%(desc)s", distance=%(distance)i, method="%(method)s";"""
-            % {"index": index, "desc": desc_calc, "distance": distance, "method": method})
-        db.commit()
-    distance_total = sql("""SELECT sum(distance) as sum FROM wordpress.wp_cdpb_calc""")
-    print("%i m - skipping: %i - calculating: %i " % (distance_total[0][0], skipping, calculating))
+                    print('''INSERT INTO wordpress.wp_cdpb_calc(id, description, distance, ident, method)
+                        VALUES (%(index)i, "%(desc)s",
+                                %(distance)i, "%(ident)s", "%(method)s")
+                        ON DUPLICATE KEY
+                        UPDATE  id=%(index)i, description="%(desc)s",
+                                ident="%(ident)s", distance=%(distance)i,
+                                method="%(method)s";'''
+                        % {"index": pairindex, "desc": description_wpmaps,
+                           "distance": distance, "ident": ident_wpmaps,
+                           "method": method})
+                    db.commit()
+                    calculated += 1
+                    break
+
+    distance_total = sql("""SELECT ROUND(SUM(distance)/1000) as count
+                         FROM wp_cdpb_calc where skipcalculate is not true""")
+    logger.info("%i m - skipped: %i - calculated: %i "
+                % (distance_total[0][0], skipped, calculated))
 db.close()
