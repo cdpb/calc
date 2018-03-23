@@ -131,7 +131,7 @@ if data_wpmaps and data_wpcalc:
         else:
             dfrom = data[2]
             dto = data[3]
-            for method in (try_calculate_beeline, try_calculate_gmaps):
+            for method in (try_calculate_gmaps, try_calculate_beeline):
                 calculate_method_result = method(dfrom, dto)
                 distance = calculate_method_result[0]
                 method = calculate_method_result[1]
