@@ -122,7 +122,7 @@ if data_wpmaps and data_wpcalc:
         description_wpmaps = data[0]
         ident_wpmaps = data[1]
         description_wpcalc = data_wpcalc[pairindex][0]
-        ident_wpcalc = data_wpcalc[pairindex][0]
+        ident_wpcalc = data_wpcalc[pairindex][1]
 
         if ident_wpcalc == ident_wpmaps:
             skipped += 1
@@ -144,7 +144,7 @@ if data_wpmaps and data_wpcalc:
                     logger.info("method %s calculated %i, pair: %s - %s"
                                 % (method, distance, pairindex, description_wpmaps))
 
-                    print('''INSERT INTO wordpress.wp_cdpb_calc(id, description, distance, ident, method)
+                    sql('''INSERT INTO wordpress.wp_cdpb_calc(id, description, distance, ident, method)
                         VALUES (%(index)i, "%(desc)s",
                                 %(distance)i, "%(ident)s", "%(method)s")
                         ON DUPLICATE KEY
