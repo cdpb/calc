@@ -158,63 +158,83 @@ def try_calculate_beeline(dfrom, dto):
     data = (distance, method)
     return data
 
+# default: try gmaps first, then beeline
+def try_calculate_default(dfrom, dto):
+    for method in (try_calculate_gmaps, try_calculate_beeline):
+        calculate_method_result = method(dfrom, dto)
+        distance = calculate_method_result[0]
+        method = calculate_method_result[1]
+        if method is None:
+            logger.info("method %s failed - from %s to %s"
+                        % (method, dfrom, dto))
+            continue
+        else:
+            return (distance, method)
 
-data_wpmaps_raw = sql("SELECT address,lat,lng FROM wordpress.wp_wpgmza WHERE map_id = %i"
-                      % (wpmapid))
+# recalculate only one index
+def single_calculation(pair, pref_method=None, opt=None):
+    data_wpcalc_raw = sql("SELECT dfrom,dto FROM wordpress.wp_cdpb_calc WHERE id = %i"
+                          % (pair))
+    if data_wpcalc_raw:
+        dfrom = data_wpcalc_raw[0][0]
+        dto = data_wpcalc_raw[0][1]
+        if pref_method is None:
+            rst = try_calculate_default(dfrom, dto)
+        elif pref_method == "gmaps":
+            rst = try_calculate_gmaps(dfrom, dto, mode=opt)
+        elif pref_method == "beeline":
+            rst = try_calculate_beeline(dfrom, dto)
+        else:
+            logger.error("No suitable method found - got %s - exit"
+                         % (pref_method))
+            exit(97)
 
-data_wpcalc = sql("SELECT description,ident,method FROM wordpress.wp_cdpb_calc")
-data_wpmaps = generate_data_pair(data_wpmaps_raw)
+        if rst[1] == pref_method or rst[1] is not None:
+            # index, distance, method
+            update_calculation_sql(index=pair, distance=rst[0], method=rst[1])
 
-if data_wpmaps and data_wpcalc:
-    skipped = 0
-    calculated = 0
-    for pairindex, data in enumerate(data_wpmaps):
-        description_wpmaps = data[0]
-        ident_wpmaps = data[1]
-        description_wpcalc = data_wpcalc[pairindex][0]
-        ident_wpcalc = data_wpcalc[pairindex][1]
+# default, calculated all, search for skipped
+# TODO method prefered
+def default_calculation():
+    data_wpmaps_raw = sql("SELECT address,lat,lng FROM wordpress.wp_wpgmza WHERE map_id = %i"
+                          % (wpmapid))
+
+    data_wpcalc = sql("SELECT description,ident,method FROM wordpress.wp_cdpb_calc")
+    data_wpmaps = generate_data_pair(data=data_wpmaps_raw)
+
+    if data_wpmaps and data_wpcalc:
+        skipped = 0
+        calculated = 0
+        for pairindex, data in enumerate(data_wpmaps):
+            description_wpmaps = data[0]
+            ident_wpmaps = data[1]
+            description_wpcalc = data_wpcalc[pairindex][0]
+            ident_wpcalc = data_wpcalc[pairindex][1]
+
+            if ident_wpcalc == ident_wpmaps:
+                skipped += 1
+                logger.debug("skip - pair: %s - %s "
+                             % (pairindex, description_wpcalc))
+            else:
+                dfrom = data[2]
+                dto = data[3]
+                a = try_calculate_default(pairindex, dfrom, dto)
+                distance = a[0]
+                method = a[1]
+                if method is not None and isinstance(distance, int):
+                    insert_calculation_sql(pairindex, description_wpmaps,
+                                           distance, ident_wpmaps, method,
+                                           dfrom, dto)
+                    calculated += 1
+                    break
+    logger.info("total %i km - skipped: %i - calculated: %i "
+                % (get_total_distance(), skipped, calculated))
+
+
+
 init_logging()
 init_dbconnection()
 
-        if ident_wpcalc == ident_wpmaps:
-            skipped += 1
-            logger.debug("skip - pair: %s - %s "
-                         % (pairindex, description_wpcalc))
-        else:
-            dfrom = data[2]
-            dto = data[3]
-            for method in (try_calculate_gmaps, try_calculate_beeline):
-                calculate_method_result = method(dfrom, dto)
-                distance = calculate_method_result[0]
-                method = calculate_method_result[1]
-                if method is None:
-                    print(calculate_method_result)
-                    logger.info("method %s failed, pair: %s - %s"
-                                % (method, pairindex, description_wpmaps))
-                    continue
-                else:
-                    logger.info("method %s calculated %i, pair: %s - %s"
-                                % (method, distance, pairindex, description_wpmaps))
-
-                    sql('''INSERT INTO wordpress.wp_cdpb_calc(id, description, distance, ident, method)
-                        VALUES (%(index)i, "%(desc)s",
-                                %(distance)i, "%(ident)s", "%(method)s")
-                        ON DUPLICATE KEY
-                        UPDATE  id=%(index)i, description="%(desc)s",
-                                ident="%(ident)s", distance=%(distance)i,
-                                method="%(method)s";'''
-                        % {"index": pairindex, "desc": description_wpmaps,
-                           "distance": distance, "ident": ident_wpmaps,
-                           "method": method})
-                    db.commit()
-                    calculated += 1
-                    break
-
-    distance_total = sql("""SELECT ROUND(SUM(distance)/1000) as count
-                         FROM wp_cdpb_calc where skipcalculate is not true""")
-    logger.info("total %i km - skipped: %i - calculated: %i "
-                % (distance_total[0][0], skipped, calculated))
-db.close()
 args = setup_argparse()
 if args.pair:
     single_calculation(pair=args.pair, pref_method=args.method, opt=args.opt)
