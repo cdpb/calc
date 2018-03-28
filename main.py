@@ -99,6 +99,29 @@ def generate_data_pair(data):
             ident = generate_uniq_ident(description)
             finaldata.append([description, ident, dfrom, dto])
 
+# dump calculation to database
+def insert_calculation_sql(index, desc, distance, ident, method, dfrom, dto):
+    global db
+    sql('''INSERT INTO wordpress.wp_cdpb_calc(id, description, distance, ident, method, dfrom, dto)
+        VALUES (%(index)i, "%(desc)s", %(distance)i, "%(ident)s", "%(method)s", "%(dfrom)s", "%(dto)s")
+        ON DUPLICATE KEY
+        UPDATE id=%(index)i, description="%(desc)s", ident="%(ident)s",
+        distance=%(distance)i, method="%(method)s", "%(dfrom)s", "%(dto)s";'''
+        % {"index": index, "desc": desc,
+           "distance": distance, "ident": ident,
+           "method": method, "dfrom": dfrom, "dto": dto})
+    db.commit()
+
+def update_calculation_sql(index, distance, method):
+    global db
+    sql('''UPDATE wordpress.wp_cdpb_calc
+        SET
+            distance = %(distance)i,
+            method = "%(method)s"
+        WHERE id = %(index)i;'''
+        % {"index": index, "distance": distance, "method": method})
+    db.commit()
+
 # try call google maps api
 def try_calculate_gmaps(dfrom, dto, mode="driving"):
     gmaps = googlemaps.Client(getenv('GOOGLE_APIKEY'))
