@@ -122,9 +122,14 @@ def update_calculation_sql(index, distance, method):
         % {"index": index, "distance": distance, "method": method})
     db.commit()
 
+def connect_gapi():
+    return googlemaps.Client(getenv('GOOGLE_APIKEY'))
+
 # try call google maps api
-def try_calculate_gmaps(dfrom, dto, mode="driving"):
-    gmaps = googlemaps.Client(getenv('GOOGLE_APIKEY'))
+def try_calculate_gmaps(dfrom, dto, mode):
+    gmaps = connect_gapi()
+    if mode is None:
+        mode = "driving"
     rawdata = gmaps.directions(dfrom, dto, mode=mode)
     distance = rawdata[0]["legs"][0]["distance"]["value"]
 
@@ -138,6 +143,8 @@ def try_calculate_gmaps(dfrom, dto, mode="driving"):
     else:
         method = None
     data = (distance, method)
+    logger.info("method %s calculated %i - from %s to %s"
+                % (method, distance, dfrom, dto))
     return data
 
 # try direct way
