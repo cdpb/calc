@@ -9,7 +9,9 @@ CREATE TABLE wordpress.wp_cdpb_calc (
   distance INT(30) NOT NULL,
   ident varchar(6) DEFAULT NOT NULL,
   method VARCHAR(20) NOT NULL,
-  skipcalculate varchar(20) DEFAULT NULL,
+  skip varchar(20) DEFAULT NULL,
+  dfrom varchar(100) DEFAULT NULL,
+  dto varchar(100) DEFAULT NULL,
   PRIMARY KEY (id)
 );
 ```
@@ -47,7 +49,7 @@ Example use in functions.php
 // summary of distance from maps plugin
 function get_cdpb_calc() {
         global $wpdb;
-        $a = $wpdb->get_results("SELECT ROUND(SUM(distance)/1000) as count FROM wp_cdpb_calc where skipcalculate is not true");
+        $a = $wpdb->get_results("SELECT ROUND(SUM(distance)/1000) as count FROM wp_cdpb_calc where skip is not true");
         $b = $a[0]->count;
         return $b;
 }
@@ -56,5 +58,5 @@ add_shortcode( 'wp-cdpb-calc', 'get_cdpb_calc' );
 
 To skip calculaten
 ```
-UPDATE wp_cdpb_calc SET skipcalculate = true WHERE id = xx;
+UPDATE wp_cdpb_calc SET skip = true WHERE id = xx;
 ```
