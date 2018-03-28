@@ -155,6 +155,8 @@ def try_calculate_beeline(dfrom, dto):
         method = "beeline"
     else:
         method = None
+    logger.info("method %s calculated %i - from %s to %s"
+                % (method, distance, dfrom, dto))
     data = (distance, method)
     return data
 
@@ -230,6 +232,10 @@ def default_calculation():
     logger.info("total %i km - skipped: %i - calculated: %i "
                 % (get_total_distance(), skipped, calculated))
 
+def get_total_distance():
+    a = sql('''SELECT ROUND(SUM(distance)/1000) as count FROM wp_cdpb_calc
+            WHERE skip is not true''')
+    return a[0][0]
 
 
 init_logging()
