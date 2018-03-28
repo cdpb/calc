@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+import argparse
 import geopy.distance
 import googlemaps
 import logging
@@ -48,6 +49,13 @@ def init_dbconnection():
 
     dbcursor = db.cursor()
 
+def setup_argparse():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--pair', type=int, help='calculate just a single pair')
+    parser.add_argument('--method', type=str, help='prefered method')
+    parser.add_argument('--opt', type=str, help='set mode "driving, transit"')
+    parser.add_argument('--debug', type=str, help='increase verbose, alot')
+    return parser.parse_args()
 
 # default is to fetch all from sql
 def sql(query, type="all"):
@@ -135,6 +143,7 @@ if data_wpmaps and data_wpcalc:
         ident_wpmaps = data[1]
         description_wpcalc = data_wpcalc[pairindex][0]
         ident_wpcalc = data_wpcalc[pairindex][1]
+init_logging()
 init_dbconnection()
 
         if ident_wpcalc == ident_wpmaps:
@@ -176,6 +185,10 @@ init_dbconnection()
     logger.info("total %i km - skipped: %i - calculated: %i "
                 % (distance_total[0][0], skipped, calculated))
 db.close()
+args = setup_argparse()
+if args.pair:
+    single_calculation(pair=args.pair, pref_method=args.method, opt=args.opt)
+else:
     default_calculation(pref_method=args.method)
 
 try:
