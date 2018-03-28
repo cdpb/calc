@@ -70,8 +70,7 @@ def sql(query, type="all"):
     return data
 
 def generate_description(a, b, delim="to"):
-    combine = "%s %s %s" % (a, delim, b)
-    return combine
+    return "%s %s %s" % (a, delim, b)
 
 def generate_uniq_ident(data, chars=string.ascii_uppercase + string.digits):
     random.seed(data)
