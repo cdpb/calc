@@ -8,43 +8,55 @@ import pymysql
 import random
 import string
 
-dbhost = getenv('MYSQL_HOST')
-dbuser = getenv('MYSQL_USER')
-dbpasswd = getenv('MYSQL_PASSWORD')
-dbname = getenv('MYSQL_DATABASE')
-dbport = getenv('MYSQL_PORT')
 maxmeter = 1000000
 wpmapid = 1
+global db
+global dbcursor
+global logger
 
-logger = logging.getLogger('calc')
-logger.setLevel(logging.INFO)
-ch = logging.StreamHandler()
-ch.setLevel(logging.INFO)
-formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-ch.setFormatter(formatter)
-logger.addHandler(ch)
+def init_logging():
+    global logger
+    logger = logging.getLogger('calc')
+    logger.setLevel(logging.INFO)
+    ch = logging.StreamHandler()
+    ch.setLevel(logging.INFO)
+    formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    ch.setFormatter(formatter)
+    logger.addHandler(ch)
 
-try:
-    db = pymysql.connect(
-        host=dbhost,
-        user=dbuser,
-        passwd=dbpasswd,
-        port=dbport,
-        db=dbname
-    )
-except Exception:
-    logger.error("could not connect to %s@%s on %s" % (dbuser, dbhost, dbname))
-    exit(98)
+def init_dbconnection():
+    global db
+    global dbcursor
+    dbhost = getenv('MYSQL_HOST')
+    dbuser = getenv('MYSQL_USER')
+    dbpasswd = getenv('MYSQL_PASSWORD')
+    dbname = getenv('MYSQL_DATABASE')
+    dbport = getenv('MYSQL_PORT')
 
-cursor = db.cursor()
+    try:
+        db = pymysql.connect(
+            host=dbhost,
+            user=dbuser,
+            passwd=dbpasswd,
+            port=dbport,
+            db=dbname
+        )
+    except Exception:
+        logger.error("could not connect to %s@%s on %s"
+                     % (dbuser, dbhost, dbname))
+        exit(98)
+
+    dbcursor = db.cursor()
+
 
 # default is to fetch all from sql
 def sql(query, type="all"):
-    cursor.execute(query)
+    global dbcursor
+    dbcursor.execute(query)
     if type is "all":
-        data = cursor.fetchall()
+        data = dbcursor.fetchall()
     elif type is "one":
-        data = cursor.fetchone()
+        data = dbcursor.fetchone()
     else:
         exit(99)
     return data
@@ -123,6 +135,7 @@ if data_wpmaps and data_wpcalc:
         ident_wpmaps = data[1]
         description_wpcalc = data_wpcalc[pairindex][0]
         ident_wpcalc = data_wpcalc[pairindex][1]
+init_dbconnection()
 
         if ident_wpcalc == ident_wpmaps:
             skipped += 1
@@ -163,3 +176,10 @@ if data_wpmaps and data_wpcalc:
     logger.info("total %i km - skipped: %i - calculated: %i "
                 % (distance_total[0][0], skipped, calculated))
 db.close()
+    default_calculation(pref_method=args.method)
+
+try:
+    if db.open:
+        db.close()
+except NameError:
+    exit()
