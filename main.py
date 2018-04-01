@@ -196,7 +196,7 @@ def single_calculation(pair, pref_method=None, opt=None):
 
 # default, calculated all, search for skipped
 # TODO method prefered
-def default_calculation():
+def default_calculation(pref_method=None):
     data_wpmaps_raw = sql("SELECT address,lat,lng FROM wordpress.wp_wpgmza WHERE map_id = %i"
                           % (wpmapid))
 
