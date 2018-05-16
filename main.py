@@ -15,6 +15,7 @@ global db
 global dbcursor
 global logger
 
+
 def init_logging():
     global logger
     logger = logging.getLogger('calc')
@@ -24,6 +25,7 @@ def init_logging():
     formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
     ch.setFormatter(formatter)
     logger.addHandler(ch)
+
 
 def init_dbconnection():
     global db
@@ -49,6 +51,7 @@ def init_dbconnection():
 
     dbcursor = db.cursor()
 
+
 def setup_argparse():
     parser = argparse.ArgumentParser()
     parser.add_argument('--pair', type=int, help='calculate just a single pair')
@@ -56,6 +59,7 @@ def setup_argparse():
     parser.add_argument('--opt', type=str, help='set mode "driving, transit"')
     parser.add_argument('--debug', type=str, help='increase verbose, alot')
     return parser.parse_args()
+
 
 # default is to fetch all from sql
 def sql(query, type="all"):
@@ -69,19 +73,22 @@ def sql(query, type="all"):
         exit(99)
     return data
 
+
 def generate_description(a, b, delim="to"):
     return "%s %s %s" % (a, delim, b)
+
 
 def generate_uniq_ident(data, chars=string.ascii_uppercase + string.digits):
     random.seed(data)
     return ''.join(random.choice(chars) for _ in range(6))
 
+
 # generate list of data pair
 # output data(description, ident, dfrom, dto)
 def generate_data_pair(data):
     finaldata = []
-    pairone = None
-    pairtwo = None
+    # pairone = None
+    # pairtwo = None
 
     for index, item in enumerate(data, start=0):
         try:
@@ -98,6 +105,7 @@ def generate_data_pair(data):
             ident = generate_uniq_ident(description)
             finaldata.append([description, ident, dfrom, dto])
 
+
 # dump calculation to database
 def insert_calculation_sql(index, desc, distance, ident, method, dfrom, dto):
     global db
@@ -111,6 +119,7 @@ def insert_calculation_sql(index, desc, distance, ident, method, dfrom, dto):
            "method": method, "dfrom": dfrom, "dto": dto})
     db.commit()
 
+
 def update_calculation_sql(index, distance, method):
     global db
     sql('''UPDATE wordpress.wp_cdpb_calc
@@ -121,8 +130,10 @@ def update_calculation_sql(index, distance, method):
         % {"index": index, "distance": distance, "method": method})
     db.commit()
 
+
 def connect_gapi():
     return googlemaps.Client(getenv('GOOGLE_APIKEY'))
+
 
 # try call google maps api
 def try_calculate_gmaps(dfrom, dto, mode):
@@ -146,6 +157,7 @@ def try_calculate_gmaps(dfrom, dto, mode):
                 % (method, distance, dfrom, dto))
     return data
 
+
 # try direct way
 def try_calculate_beeline(dfrom, dto):
     distance_raw = geopy.distance.vincenty(dfrom, dto).m
@@ -159,6 +171,7 @@ def try_calculate_beeline(dfrom, dto):
     data = (distance, method)
     return data
 
+
 # default: try gmaps first, then beeline
 def try_calculate_default(dfrom, dto):
     for method in (try_calculate_gmaps, try_calculate_beeline):
@@ -171,6 +184,7 @@ def try_calculate_default(dfrom, dto):
             continue
         else:
             return (distance, method)
+
 
 # recalculate only one index
 def single_calculation(pair, pref_method=None, opt=None):
@@ -194,6 +208,7 @@ def single_calculation(pair, pref_method=None, opt=None):
             # index, distance, method
             update_calculation_sql(index=pair, distance=rst[0], method=rst[1])
 
+
 # default, calculated all, search for skipped
 # TODO method prefered
 def default_calculation(pref_method=None):
@@ -209,6 +224,7 @@ def default_calculation(pref_method=None):
         for pairindex, data in enumerate(data_wpmaps):
             description_wpmaps = data[0]
             ident_wpmaps = data[1]
+
             description_wpcalc = data_wpcalc[pairindex][0]
             ident_wpcalc = data_wpcalc[pairindex][1]
 
@@ -230,6 +246,7 @@ def default_calculation(pref_method=None):
                     break
     logger.info("total %i km - skipped: %i - calculated: %i "
                 % (get_total_distance(), skipped, calculated))
+
 
 def get_total_distance():
     a = sql('''SELECT ROUND(SUM(distance)/1000) as count FROM wp_cdpb_calc
