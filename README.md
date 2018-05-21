@@ -3,17 +3,17 @@
 ### Setup
 
 ```
-CREATE TABLE wordpress.wp_cdpb_calc (
-  id INT(6) PRIMARY KEY,
-  description VARCHAR(1000) NOT NULL,
-  distance INT(30) NOT NULL,
-  ident varchar(6) DEFAULT NOT NULL,
-  method VARCHAR(20) NOT NULL,
-  skip varchar(20) DEFAULT NULL,
-  dfrom varchar(100) DEFAULT NULL,
-  dto varchar(100) DEFAULT NULL,
-  PRIMARY KEY (id)
-);
+CREATE TABLE `wp_cdpb_calc` (
+  `id` int(6) NOT NULL,
+  `description` varchar(1000) NOT NULL,
+  `distance` int(30) NOT NULL,
+  `ident` varchar(6) NOT NULL,
+  `method` varchar(20) NOT NULL,
+  `dfrom` varchar(100) NOT NULL,
+  `dto` varchar(100) NOT NULL,
+  `skip` varchar(20) DEFAULT NULL,
+  PRIMARY KEY (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8
 ```
 
 #### Environment
