@@ -13,6 +13,8 @@ maxmeter = 1000000
 wpmaps_id = 1
 wpcalc_table = "wordpress.wp_cdpb_calc"
 wpmaps_table = "wordpress.wp_wpgmza"
+wpmaps_table_poly = "wordpress.wp_wpgmza_polylines"
+wpmaps_table_poly_id = 1
 global db
 global dbcursor
 global logger
@@ -156,6 +158,18 @@ def update_id_sql(id_old, id_new, ident_new):
         WHERE id = %(old)i;'''
         % {"new": id_new, "old": id_old,
            "table": wpcalc_table, "ident": ident_new
+           })
+    db.commit()
+
+
+def polyline_sql_update(data):
+    global db
+    sql('''UPDATE %(table)s
+        SET
+            polydata = "%(data)s"
+        WHERE id = %(id)i;'''
+        % {"data": data, "id": wpmaps_table_poly_id,
+           "table": wpmaps_table_poly
            })
     db.commit()
 
@@ -326,6 +340,16 @@ def default_calculation(pref_method=None):
                     % (get_total_distance(), skipped, calculated))
 
 
+def polyline_getdirections():
+    final = ""
+    data = sql('''SELECT lat,lng FROM %(table)s;''' % ({"table": wpmaps_table}))
+    for a in data:
+        lat, lng = a
+        final += ("(%s, %s)," % (lat, lng))
+
+    return final[:-1]
+
+
 def get_total_distance():
     a = sql('''SELECT ROUND(SUM(distance)/1000) as count FROM %(table)s
             WHERE skip is not true;''' % ({"table": wpcalc_table}))
@@ -340,6 +364,7 @@ if args.pair:
     single_calculation(pair=args.pair, pref_method=args.method, opt=args.opt)
 else:
     default_calculation(pref_method=args.method)
+    polyline_sql_update(polyline_getdirections())
 
 try:
     if db.open:
