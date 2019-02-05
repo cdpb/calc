@@ -20,17 +20,20 @@ global dbcursor
 global logger
 
 
+# setup logging, default INFO
 def init_logging():
     global logger
     logger = logging.getLogger('calc')
     logger.setLevel(logging.INFO)
     ch = logging.StreamHandler()
     ch.setLevel(logging.INFO)
-    formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    formatter = logging.Formatter(
+        '%(asctime)s - %(name)s - %(levelname)s - %(message)s')
     ch.setFormatter(formatter)
     logger.addHandler(ch)
 
 
+# connect to mysql
 def init_dbconnection():
     global db
     global dbcursor
@@ -45,17 +48,18 @@ def init_dbconnection():
             host=dbhost,
             user=dbuser,
             passwd=dbpasswd,
-            port=dbport,
+            port=int(dbport),
             db=dbname
         )
     except Exception:
-        logger.error("could not connect to %s@%s on %s"
-                     % (dbuser, dbhost, dbname))
+        logger.error("could not connect to %s@%s:%s on %s"
+                     % (dbuser, dbhost, dbport, dbname))
         exit(98)
 
     dbcursor = db.cursor()
 
 
+# set some args on cli, default is to do default_calculation() without args
 def setup_argparse():
     parser = argparse.ArgumentParser()
     parser.add_argument('--pair', type=int,
@@ -64,40 +68,37 @@ def setup_argparse():
                         help='prefered method (gmaps|beeline)')
     parser.add_argument('--opt', type=str,
                         help='set mode "driving, transit" (gmaps)')
-    parser.add_argument('--debug', type=str, help='increase verbose, alot')
     return parser.parse_args()
 
 
-# default is to fetch all from sql
-def sql(query, type="all"):
+# fetch from sql
+def sql(query):
     global dbcursor
     dbcursor.execute(query)
-    if type is "all":
-        data = dbcursor.fetchall()
-    elif type is "one":
-        data = dbcursor.fetchone()
-    else:
-        exit(99)
-    return data
+    return dbcursor.fetchall()
 
 
+# return 'foo to bar'
 def generate_description(a, b, delim="to"):
     return "%s %s %s" % (a, delim, b)
 
 
+# random 6 charakter string, seeded by destination from AND to
+# identseed = ''.join([dfrom, dto])
 def generate_uniq_ident(data, chars=string.ascii_uppercase + string.digits):
     random.seed(data)
     return ''.join(random.choice(chars) for _ in range(6))
 
 
 # generate list of data pair
+# input wpmaps_data_sql(address,lat,lng) from default_calculation()
 # output data(description, ident, dfrom, dto)
 def generate_data_pair(data):
     finaldata = []
 
     for index, item in enumerate(data, start=0):
         try:
-            nextitem = data[index+1]
+            nextitem = data[index + 1]
         except IndexError:
             return finaldata
         else:
@@ -105,14 +106,14 @@ def generate_data_pair(data):
             dfrom = item[1] + ", " + item[2]
             dto_description = nextitem[0]
             dto = nextitem[1] + ", " + nextitem[2]
-            identseed = ''.join([dfrom, dto])
+
             description = generate_description(dfrom_description,
                                                dto_description)
-            ident = generate_uniq_ident(identseed)
+            ident = generate_uniq_ident(''.join([dfrom, dto]))
             finaldata.append([description, ident, dfrom, dto])
 
 
-# dump calculation to database
+# dump full calculation to database
 def insert_calculation_sql(id, desc, distance, ident, method, dfrom, dto):
     global db
     sql('''INSERT INTO %(table)s (id, description, distance, ident, method, dfrom, dto)
@@ -128,6 +129,7 @@ def insert_calculation_sql(id, desc, distance, ident, method, dfrom, dto):
     db.commit()
 
 
+# used for single calculation, just update distance and method
 def update_calculation_sql(index, distance, method):
     global db
     sql('''UPDATE %(table)s
@@ -140,6 +142,7 @@ def update_calculation_sql(index, distance, method):
     db.commit()
 
 
+# used for ident_matcher()
 def delete_id_sql(index):
     global db
     sql('''DELETE FROM %(table)s
@@ -149,6 +152,7 @@ def delete_id_sql(index):
     db.commit()
 
 
+# used for ident_matcher()
 def update_id_sql(id_old, id_new, ident_new):
     global db
     sql('''UPDATE %(table)s
@@ -162,7 +166,8 @@ def update_id_sql(id_old, id_new, ident_new):
     db.commit()
 
 
-def polyline_sql_update(data):
+# override polyline to db
+def update_polyline_sql(data):
     global db
     sql('''UPDATE %(table)s
         SET
@@ -174,6 +179,7 @@ def polyline_sql_update(data):
     db.commit()
 
 
+# connect to gapi
 def connect_gapi():
     return googlemaps.Client(getenv('GOOGLE_APIKEY'))
 
@@ -182,7 +188,6 @@ def connect_gapi():
 def try_calculate_gmaps(dfrom, dto, mode="driving"):
     gmaps = connect_gapi()
     error = False
-    distance = None
 
     if mode is None:
         mode = "driving"
@@ -191,7 +196,7 @@ def try_calculate_gmaps(dfrom, dto, mode="driving"):
     try:
         distance = rawdata[0]["legs"][0]["distance"]["value"]
         if distance > maxmeter:
-            logger.error("distance from %s to %s over %i (%s), try something else"
+            logger.error("distance from %s to %s over %i (%s),try other method"
                          % (dfrom, dto, maxmeter, "gmaps"))
             error = True
     except IndexError:
@@ -201,14 +206,12 @@ def try_calculate_gmaps(dfrom, dto, mode="driving"):
         method = "gmaps-%s" % (mode)
     else:
         method = None
-    data = (distance, method)
-    return data
+    return (distance, method)
 
 
 # try direct way
 def try_calculate_beeline(dfrom, dto):
-    distance_raw = geopy.distance.vincenty(dfrom, dto).m
-    distance = round(distance_raw)
+    distance = round(geopy.distance.geodesic(dfrom, dto).m)
     if isinstance(distance, int):
         method = "beeline"
     else:
@@ -220,129 +223,172 @@ def try_calculate_beeline(dfrom, dto):
 # default: try gmaps first, then beeline
 def try_calculate_default(dfrom, dto):
     for method in (try_calculate_gmaps, try_calculate_beeline):
-        calculate_method_result = method(dfrom, dto)
-        distance = calculate_method_result[0]
-        returned_method = calculate_method_result[1]
-        if returned_method is None:
+        distance, rmethod = method(dfrom, dto)
+        if rmethod is None:
             logger.info("method %s failed - from %s to %s"
                         % (method, dfrom, dto))
             continue
         else:
-            return (distance, returned_method)
+            return (distance, rmethod)
 
 
 # recalculate only one index
 def single_calculation(pair, pref_method=None, opt=None):
-    data_wpcalc_raw = sql('''SELECT dfrom,dto FROM %(table)s WHERE id = %(pair)i;'''
+    wpcalc_data_sql = sql('''SELECT dfrom,dto,ident FROM %(table)s
+                          WHERE id = %(pair)i;'''
                           % ({"pair": pair, "table": wpcalc_table}))
-    if data_wpcalc_raw:
-        dfrom = data_wpcalc_raw[0][0]
-        dto = data_wpcalc_raw[0][1]
+    if wpcalc_data_sql:
+        dfrom, dto = wpcalc_data_sql[0]
 
         if pref_method is None:
-            rst = try_calculate_default(dfrom, dto)
+            distance, method = try_calculate_default(dfrom, dto)
         elif pref_method == "gmaps":
-            rst = try_calculate_gmaps(dfrom, dto, mode=opt)
+            distance, method = try_calculate_gmaps(dfrom, dto, mode=opt)
         elif pref_method == "beeline":
-            rst = try_calculate_beeline(dfrom, dto)
+            distance, method = try_calculate_beeline(dfrom, dto)
         else:
             logger.error("No suitable method found - got %s - exit"
                          % (pref_method))
             exit(97)
 
-        if rst[1] == pref_method or rst[1] is not None:
-            update_calculation_sql(index=pair, distance=rst[0], method=rst[1])
+        if method == pref_method or method is not None:
+            update_calculation_sql(pair, distance, method)
+            logger.info("updated pair %i with method %s and distance %sm"
+                        % (
+                            pair, method, distance
+                        ))
         else:
-            logger.error("return value not suitable, no update")
+            logger.error("return value not suitable, no update - %s"
+                         % (method))
 
 
-# id -> ident matcher, update id accouring to new order
+# id -> ident matcher, update id accourding to new order
 # needed when record is updated or deleted
-def ident_matcher(data_wpmaps_pair):
-    data_wpcalc_sql = sql('''SELECT id,ident FROM %(table)s;'''
+# called by default_calculation()
+def ident_matcher(wpmaps_pair):
+    wpcalc_data_sql = sql('''SELECT id,ident FROM %(table)s;'''
                           % ({"table": wpcalc_table}))
-    for wpmaps_index, wpmaps_pair in enumerate(data_wpmaps_pair, start=1):
-        identmatch = False
-        wpmaps_ident = wpmaps_pair[1]
 
-        for wpcalc_data in data_wpcalc_sql:
-            wpcalc_index, wpcalc_ident = wpcalc_data
-
-            if wpcalc_ident == wpmaps_ident:
-                identmatch = True
+    shiftids = []
+    for wpmaps_index, wpmaps_data in enumerate(wpmaps_pair, start=1):
+        wpmaps_ident = wpmaps_data[1]
+        for wpcalc_index, wpcalc_ident in wpcalc_data_sql:
+            if wpmaps_ident == wpcalc_ident:
                 if wpmaps_index != wpcalc_index:
                     try:
-                        update_id_sql(wpcalc_index, wpmaps_index, wpmaps_ident)
+                        # update id accourding to wpmaps_index
+                        update_id_sql(id_old=wpcalc_index,
+                                      id_new=wpmaps_index,
+                                      ident_new=wpmaps_ident)
                         break
                     except pymysql.err.IntegrityError:
-                        logger.error("duplicate key - %s" % (wpmaps_ident))
+                        logger.info("P1 - duplicate key %s to %s - %s"
+                                    % (
+                                        wpcalc_index,
+                                        wpmaps_index,
+                                        wpmaps_ident
+                                    ))
+                        # multiple with random int
+                        rnd = random.randint(1000, 1500)
+                        wpmaps_index_tmp = wpmaps_index * rnd
+                        shiftids.append([wpmaps_index,
+                                         wpmaps_index_tmp,
+                                         wpmaps_ident])
+                        try:
+                            # try again to update id, with intermediate random index
+                            update_id_sql(id_old=wpcalc_index,
+                                          id_new=wpmaps_index_tmp,
+                                          ident_new=wpmaps_ident)
+                            logger.info("P1 - shifting id from %s to %s - %s"
+                                        % (
+                                            wpcalc_index,
+                                            wpmaps_index_tmp,
+                                            wpmaps_ident
+                                        ))
+                            break
+                        except pymysql.err.IntegrityError:
+                            logger.info("P2 - failed shifting id from %s to %s - %s"
+                                        % (
+                                            wpcalc_index,
+                                            wpmaps_index_tmp,
+                                            wpmaps_ident
+                                        ))
                         continue
 
-        # assume reindex
-        if not identmatch:
-            logger.error("no matched ident - reindex on assumed index - %s - %s"
-                         % (wpmaps_index, wpmaps_ident))
-            update_id_sql(wpmaps_index, wpmaps_index, wpmaps_ident)
+    for shiftid in shiftids:
+        wpmaps_index, wpmaps_index_tmp, wpmaps_ident = shiftid
+        try:
+                # shift back to original index
+            update_id_sql(id_old=wpmaps_index_tmp,
+                          id_new=wpmaps_index,
+                          ident_new=wpmaps_ident)
+            logger.info("P2 - shifting id from %s to %s - %s"
+                        % (
+                            wpmaps_index_tmp,
+                            wpmaps_index,
+                            wpmaps_ident
+                        ))
+        except pymysql.err.IntegrityError:
+            logger.error("P3 - failed - hopeless %s to %s - %s"
+                         % (
+                             wpmaps_index_tmp,
+                             wpmaps_index,
+                             wpmaps_ident
+                         ))
 
-    # remove highest index if len() mismatch
-    if len(data_wpcalc_sql) > len(data_wpmaps_pair):
-        index = max(data_wpcalc_sql)[0]
+    # remove highest index if len() mismatch, assume deleted record
+    if len(wpcalc_data_sql) > len(wpmaps_pair):
+        index = max(wpcalc_data_sql)[0]
         logger.error("remove index - %i - doesn't fit in" % (index))
         delete_id_sql(index)
 
 
 # default, calculated all, search for skipped
-# TODO method prefered
-def default_calculation(pref_method=None):
-    data_wpmaps_sql = sql('''SELECT address,lat,lng FROM %(table)s WHERE map_id = %(map)i;'''
+def default_calculation():
+    wpmaps_data_sql = sql('''SELECT address,lat,lng FROM %(table)s
+                          WHERE map_id = %(map)i;'''
                           % ({"map": wpmaps_id, "table": wpmaps_table}))
-    data_wpcalc_sql = sql('''SELECT description,ident,method FROM %(table)s;'''
+    wpcalc_data_sql = sql('''SELECT ident FROM %(table)s;'''
                           % ({"table": wpcalc_table}))
 
-    data_wpmaps_pair = generate_data_pair(data=data_wpmaps_sql)
-    ident_matcher(data_wpmaps_pair)
+    # wpmaps_pair = "['foo to bar', IDENT, 'foo position', 'bar position']"
+    wpmaps_pair = generate_data_pair(wpmaps_data_sql)
+    ident_matcher(wpmaps_pair)
 
-    if data_wpmaps_pair:
+    if wpmaps_pair:
         skipped = 0
         calculated = 0
-        for wpmaps_index, wpmaps_pair in enumerate(data_wpmaps_pair, start=1):
+        for wpmaps_index, wpmaps_pair in enumerate(wpmaps_pair, start=1):
             ident_found = False
-            description_wpmaps = wpmaps_pair[0]
-            ident_wpmaps = wpmaps_pair[1]
+            wpmaps_description, wpmaps_ident, dfrom, dto = wpmaps_pair
 
-            # search for ident, if ident exist skip pair
-            for wpcalc_pair in data_wpcalc_sql:
-                ident_wpcalc = wpcalc_pair[1]
-
-                if ident_wpcalc == ident_wpmaps:
-                    description_wpcalc = wpcalc_pair[0]
+            # search for same ident, if ident exist skip pair
+            for wpcalc_ident in wpcalc_data_sql:
+                if wpcalc_ident[0] == wpmaps_ident:
                     skipped += 1
-                    logger.debug("skip - %s " % (description_wpcalc))
                     ident_found = True
                     break
 
-            if ident_found:
-                # skip
-                continue
-            else:
-                dfrom = wpmaps_pair[2]
-                dto = wpmaps_pair[3]
-                a = try_calculate_default(dfrom, dto)
-                distance = a[0]
-                method = a[1]
+            # else assume new calculaten, proceed
+            if not ident_found:
+                distance, method = try_calculate_default(dfrom, dto)
                 if method is not None and isinstance(distance, int):
-                    insert_calculation_sql(wpmaps_index, description_wpmaps,
-                                           distance, ident_wpmaps, method,
+                    insert_calculation_sql(wpmaps_index, wpmaps_description,
+                                           distance, wpmaps_ident, method,
                                            dfrom, dto)
                     calculated += 1
-                    logger.info("calculated - %s - %i with %s" % (description_wpmaps, distance, method))
+                    logger.info("calculated - %s - %i with %s"
+                                % (wpmaps_description, distance, method))
+
         logger.info("total %i km - skipped: %i - calculated: %i "
                     % (get_total_distance(), skipped, calculated))
 
 
+# draw a line, combine all positions with delim ','
 def polyline_getdirections():
     final = ""
-    data = sql('''SELECT lat,lng FROM %(table)s;''' % ({"table": wpmaps_table}))
+    data = sql('''SELECT lat,lng FROM %(table)s;'''
+               % ({"table": wpmaps_table}))
     for a in data:
         lat, lng = a
         final += ("(%s, %s)," % (lat, lng))
@@ -350,6 +396,7 @@ def polyline_getdirections():
     return final[:-1]
 
 
+# return rounded distance sum in kilometer
 def get_total_distance():
     a = sql('''SELECT ROUND(SUM(distance)/1000) as count FROM %(table)s
             WHERE skip is not true;''' % ({"table": wpcalc_table}))
@@ -363,8 +410,8 @@ args = setup_argparse()
 if args.pair:
     single_calculation(pair=args.pair, pref_method=args.method, opt=args.opt)
 else:
-    default_calculation(pref_method=args.method)
-    polyline_sql_update(polyline_getdirections())
+    default_calculation()
+    update_polyline_sql(polyline_getdirections())
 
 try:
     if db.open:
