@@ -188,6 +188,7 @@ def connect_gapi():
 def try_calculate_gmaps(dfrom, dto, mode="driving"):
     gmaps = connect_gapi()
     error = False
+    distance = False
 
     if mode is None:
         mode = "driving"
