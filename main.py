@@ -235,7 +235,7 @@ def try_calculate_default(dfrom, dto):
 
 # recalculate only one index
 def single_calculation(pair, pref_method=None, opt=None):
-    wpcalc_data_sql = sql('''SELECT dfrom,dto,ident FROM %(table)s
+    wpcalc_data_sql = sql('''SELECT dfrom,dto FROM %(table)s
                           WHERE id = %(pair)i;'''
                           % ({"pair": pair, "table": wpcalc_table}))
     if wpcalc_data_sql:
